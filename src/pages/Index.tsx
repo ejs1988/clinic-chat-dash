@@ -1,13 +1,46 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { useState } from "react";
+import { DashboardLayout } from "@/components/layout/DashboardLayout";
+import { DashboardOverview } from "@/components/dashboard/DashboardOverview";
+import { AppointmentSystem } from "@/components/dashboard/AppointmentSystem";
+import { LiveChat } from "@/components/dashboard/LiveChat";
 
 const Index = () => {
+  const [activeSection, setActiveSection] = useState("overview");
+
+  const renderContent = () => {
+    switch (activeSection) {
+      case "overview":
+        return <DashboardOverview />;
+      case "appointments":
+        return <AppointmentSystem />;
+      case "chat":
+        return <LiveChat />;
+      case "patients":
+        return (
+          <div className="text-center py-12">
+            <h2 className="text-2xl font-bold mb-4">Gestão de Pacientes</h2>
+            <p className="text-muted-foreground">Funcionalidade em desenvolvimento</p>
+          </div>
+        );
+      case "settings":
+        return (
+          <div className="text-center py-12">
+            <h2 className="text-2xl font-bold mb-4">Configurações</h2>
+            <p className="text-muted-foreground">Painel de configurações em desenvolvimento</p>
+          </div>
+        );
+      default:
+        return <DashboardOverview />;
+    }
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
-      </div>
-    </div>
+    <DashboardLayout 
+      activeSection={activeSection} 
+      onSectionChange={setActiveSection}
+    >
+      {renderContent()}
+    </DashboardLayout>
   );
 };
 
