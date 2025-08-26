@@ -2,6 +2,7 @@ import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { DashboardOverview } from "@/components/dashboard/DashboardOverview";
 import { AppointmentSystem } from "@/components/dashboard/AppointmentSystem";
+import { PatientsManagement } from "@/components/dashboard/PatientsManagement";
 import { LiveChat } from "@/components/dashboard/LiveChat";
 
 const Index = () => {
@@ -16,12 +17,7 @@ const Index = () => {
       case "chat":
         return <LiveChat />;
       case "patients":
-        return (
-          <div className="text-center py-12">
-            <h2 className="text-2xl font-bold mb-4">Gestão de Pacientes</h2>
-            <p className="text-muted-foreground">Funcionalidade em desenvolvimento</p>
-          </div>
-        );
+        return <PatientsManagement />;
       case "settings":
         return (
           <div className="text-center py-12">
