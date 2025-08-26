@@ -31,96 +31,6 @@ interface ChatRoom {
   avatar?: string;
 }
 
-const mockChatRooms: ChatRoom[] = [
-  {
-    id: "1",
-    patientName: "Maria Silva",
-    patientPhone: "(11) 99999-9999",
-    status: "online",
-    lastMessage: "Preciso remarcar minha consulta",
-    lastSeen: "Agora",
-    unreadCount: 2,
-    avatar: ""
-  },
-  {
-    id: "2",
-    patientName: "Pedro Costa", 
-    patientPhone: "(11) 88888-8888",
-    status: "away",
-    lastMessage: "Obrigado pela consulta!",
-    lastSeen: "5 min atrás",
-    unreadCount: 0,
-    avatar: ""
-  },
-  {
-    id: "3",
-    patientName: "Carla Oliveira",
-    patientPhone: "(11) 77777-7777", 
-    status: "offline",
-    lastMessage: "Quando sai o resultado do exame?",
-    lastSeen: "2 horas atrás",
-    unreadCount: 1,
-    avatar: ""
-  }
-];
-
-const mockMessages: { [key: string]: ChatMessage[] } = {
-  "1": [
-    {
-      id: "1",
-      senderId: "patient_1",
-      senderName: "Maria Silva",
-      message: "Boa tarde! Preciso remarcar minha consulta de amanhã.",
-      timestamp: "14:30",
-      type: "user"
-    },
-    {
-      id: "2", 
-      senderId: "assistant",
-      senderName: "Assistente",
-      message: "Olá Maria! Claro, posso ajudar com o reagendamento. Qual seria o melhor dia para você?",
-      timestamp: "14:32",
-      type: "assistant"
-    },
-    {
-      id: "3",
-      senderId: "patient_1", 
-      senderName: "Maria Silva",
-      message: "Poderia ser na próxima semana, de preferência na segunda-feira?",
-      timestamp: "14:35",
-      type: "user"
-    }
-  ],
-  "2": [
-    {
-      id: "1",
-      senderId: "patient_2",
-      senderName: "Pedro Costa",
-      message: "Obrigado pela consulta de hoje! Foi muito esclarecedora.",
-      timestamp: "11:45",
-      type: "user"
-    },
-    {
-      id: "2",
-      senderId: "assistant", 
-      senderName: "Assistente",
-      message: "Ficamos felizes em ajudar, Pedro! Lembre-se de tomar os medicamentos conforme prescrito.",
-      timestamp: "11:46",
-      type: "assistant"
-    }
-  ],
-  "3": [
-    {
-      id: "1",
-      senderId: "patient_3",
-      senderName: "Carla Oliveira", 
-      message: "Quando sai o resultado do meu exame de sangue?",
-      timestamp: "12:15",
-      type: "user"
-    }
-  ]
-};
-
 const statusColors = {
   online: "bg-success",
   away: "bg-warning", 
@@ -128,10 +38,10 @@ const statusColors = {
 };
 
 export function LiveChat() {
-  const [selectedRoom, setSelectedRoom] = useState<string | null>("1");
+  const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const [message, setMessage] = useState("");
-  const [chatRooms, setChatRooms] = useState<ChatRoom[]>(mockChatRooms);
-  const [messages, setMessages] = useState<{ [key: string]: ChatMessage[] }>(mockMessages);
+  const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
+  const [messages, setMessages] = useState<{ [key: string]: ChatMessage[] }>({});
   const { toast } = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -142,6 +52,83 @@ export function LiveChat() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, selectedRoom]);
+
+  const loadChatRooms = async () => {
+    try {
+      // Buscar clientes únicos com mensagens
+      const { data: sessions, error } = await supabase
+        .from('n8n_chat_histories')
+        .select('session_id')
+        .order('id', { ascending: false });
+      
+      if (error) throw error;
+
+      const uniqueSessions = [...new Set(sessions?.map(s => s.session_id) || [])];
+      
+      const rooms: ChatRoom[] = [];
+      
+      for (const sessionId of uniqueSessions) {
+        // Buscar dados do cliente
+        const { data: clientData } = await supabase
+          .from('dados_cliente')
+          .select('nomewpp, telefone')
+          .eq('telefone', sessionId)
+          .single();
+
+        // Buscar última mensagem
+        const { data: lastMsg } = await supabase
+          .from('n8n_chat_histories')
+          .select('message, id')
+          .eq('session_id', sessionId)
+          .order('id', { ascending: false })
+          .limit(1)
+          .single();
+
+        const patientName = clientData?.nomewpp || sessionId.split('@')[0] || 'Paciente';
+        const patientPhone = sessionId.includes('@') 
+          ? sessionId.replace('@s.whatsapp.net', '') 
+          : sessionId;
+
+        let lastMessage = 'Sem mensagens';
+        if (lastMsg?.message) {
+          if (typeof lastMsg.message === 'string') {
+            lastMessage = lastMsg.message;
+          } else if (typeof lastMsg.message === 'object' && lastMsg.message !== null) {
+            const msgObj = lastMsg.message as any;
+            if (msgObj.content) {
+              if (typeof msgObj.content === 'string') {
+                lastMessage = msgObj.content;
+              } else if (typeof msgObj.content === 'object' && msgObj.content.output?.mensagem) {
+                lastMessage = msgObj.content.output.mensagem;
+              }
+            }
+          }
+        }
+
+        rooms.push({
+          id: sessionId,
+          patientName,
+          patientPhone,
+          status: 'online',
+          lastMessage: lastMessage.substring(0, 50) + (lastMessage.length > 50 ? '...' : ''),
+          lastSeen: 'Agora',
+          unreadCount: 0,
+        });
+      }
+
+      setChatRooms(rooms);
+      if (rooms.length > 0 && !selectedRoom) {
+        setSelectedRoom(rooms[0].id);
+      }
+    } catch (err) {
+      console.error(err);
+      toast({
+        title: "Erro ao carregar conversas",
+        description: "Não foi possível buscar as conversas.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const loadMessages = async (roomId: string) => {
     try {
@@ -154,13 +141,39 @@ export function LiveChat() {
 
       const mapped: ChatMessage[] = (data || []).map((row: any) => {
         const payload = row.message || {};
+        let messageContent = '';
+        let senderName = 'Desconhecido';
+        let messageType: "user" | "assistant" | "system" = 'user';
+
+        // Parse different message formats
+        if (typeof payload === 'string') {
+          messageContent = payload;
+        } else if (payload.content) {
+          if (typeof payload.content === 'string') {
+            messageContent = payload.content;
+          } else if (payload.content.output?.mensagem) {
+            messageContent = payload.content.output.mensagem;
+            messageType = 'assistant';
+            senderName = 'Sofia';
+          }
+        }
+
+        // Determine sender based on type
+        if (payload.type === 'human') {
+          messageType = 'user';
+          senderName = chatRooms.find(r => r.id === roomId)?.patientName || 'Paciente';
+        } else if (payload.type === 'ai') {
+          messageType = 'assistant';
+          senderName = 'Sofia';
+        }
+
         return {
-          id: String(payload.id || row.id),
-          senderId: payload.senderId || 'unknown',
-          senderName: payload.senderName || 'Desconhecido',
-          message: payload.message || '',
-          timestamp: payload.timestamp || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-          type: payload.type || 'user',
+          id: String(row.id),
+          senderId: payload.type === 'human' ? 'patient' : 'assistant',
+          senderName,
+          message: messageContent,
+          timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+          type: messageType,
         } as ChatMessage;
       });
 
@@ -261,6 +274,11 @@ export function LiveChat() {
       sendMessage();
     }
   };
+
+  useEffect(() => {
+    loadChatRooms();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (selectedRoom) {
