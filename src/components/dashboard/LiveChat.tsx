@@ -8,6 +8,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { Send, Users, Clock, Phone, Video, MoreVertical } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { supabase } from "@/integrations/supabase/client";
+
 
 interface ChatMessage {
   id: string;
@@ -141,6 +143,43 @@ export function LiveChat() {
     scrollToBottom();
   }, [messages, selectedRoom]);
 
+  const loadMessages = async (roomId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('n8n_chat_histories')
+        .select('id, session_id, message')
+        .eq('session_id', roomId)
+        .order('id', { ascending: true });
+      if (error) throw error;
+
+      const mapped: ChatMessage[] = (data || []).map((row: any) => {
+        const payload = row.message || {};
+        return {
+          id: String(payload.id || row.id),
+          senderId: payload.senderId || 'unknown',
+          senderName: payload.senderName || 'Desconhecido',
+          message: payload.message || '',
+          timestamp: payload.timestamp || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+          type: payload.type || 'user',
+        } as ChatMessage;
+      });
+
+      setMessages(prev => ({ ...prev, [roomId]: mapped }));
+
+      const last = mapped[mapped.length - 1];
+      if (last) {
+        setChatRooms(prev => prev.map(room => room.id === roomId ? { ...room, lastMessage: last.message, lastSeen: 'Agora' } : room));
+      }
+    } catch (err) {
+      console.error(err);
+      toast({
+        title: "Erro ao carregar mensagens",
+        description: "Não foi possível buscar o histórico.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const sendMessage = async () => {
     if (!message.trim() || !selectedRoom) return;
 
@@ -165,6 +204,23 @@ export function LiveChat() {
         ? { ...room, lastMessage: message, lastSeen: "Agora" }
         : room
     ));
+
+    // Persistir no Supabase
+    try {
+      const { error: dbError } = await supabase
+        .from('n8n_chat_histories')
+        .insert({ session_id: selectedRoom, message: newMessage as any });
+      if (dbError) {
+        console.error(dbError);
+        toast({
+          title: "Aviso",
+          description: "Não foi possível salvar a mensagem no banco.",
+          variant: "destructive",
+        });
+      }
+    } catch (err) {
+      console.error(err);
+    }
 
     // Enviar para n8n webhook
     try {
@@ -205,6 +261,49 @@ export function LiveChat() {
       sendMessage();
     }
   };
+
+  useEffect(() => {
+    if (selectedRoom) {
+      loadMessages(selectedRoom);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRoom]);
+
+  useEffect(() => {
+    if (!selectedRoom) return;
+
+    const channel = supabase
+      .channel(`n8n_chat_histories_room_${selectedRoom}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'n8n_chat_histories', filter: `session_id=eq.${selectedRoom}` },
+        (payload) => {
+          const row: any = payload.new;
+          const payloadMsg = row.message || {};
+          const incoming: ChatMessage = {
+            id: String(payloadMsg.id || row.id),
+            senderId: payloadMsg.senderId || 'unknown',
+            senderName: payloadMsg.senderName || 'Desconhecido',
+            message: payloadMsg.message || '',
+            timestamp: payloadMsg.timestamp || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+            type: payloadMsg.type || 'user',
+          };
+          setMessages(prev => {
+            const arr = prev[selectedRoom] || [];
+            if (arr.some(m => m.id === incoming.id)) return prev;
+            return { ...prev, [selectedRoom]: [...arr, incoming] };
+          });
+          setChatRooms(prev => prev.map(room =>
+            room.id === selectedRoom ? { ...room, lastMessage: incoming.message, lastSeen: 'Agora' } : room
+          ));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedRoom]);
 
   const currentRoom = chatRooms.find(room => room.id === selectedRoom);
   const currentMessages = selectedRoom ? messages[selectedRoom] || [] : [];
