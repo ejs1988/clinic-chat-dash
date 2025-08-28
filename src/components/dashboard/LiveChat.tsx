@@ -218,49 +218,36 @@ export function LiveChat() {
         : room
     ));
 
-    // Persistir no Supabase
+    // Enviar através do Edge Function proxy
     try {
-      const { error: dbError } = await supabase
-        .from('n8n_chat_histories')
-        .insert({ session_id: selectedRoom, message: newMessage as any });
-      if (dbError) {
-        console.error(dbError);
+      const { data, error } = await supabase.functions.invoke('chat-proxy', {
+        body: {
+          sessionId: selectedRoom,
+          message: message,
+          senderType: 'human'
+        }
+      });
+
+      if (error) {
+        console.error('Error sending message through proxy:', error);
         toast({
-          title: "Aviso",
-          description: "Não foi possível salvar a mensagem no banco.",
+          title: "Erro",
+          description: "Não foi possível enviar a mensagem.",
           variant: "destructive",
         });
+        return;
       }
-    } catch (err) {
-      console.error(err);
-    }
 
-    // Enviar para n8n webhook
-    try {
-      const webhookData = {
-        action: "send_chat_message",
-        chatRoomId: selectedRoom,
-        message: newMessage,
-        timestamp: new Date().toISOString()
-      };
-
-      await fetch("http://localhost:5678/webhook-test/clinica-youtube", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        mode: "no-cors",
-        body: JSON.stringify(webhookData),
-      });
-
+      console.log('Message sent successfully:', data);
       toast({
         title: "Mensagem enviada!",
-        description: "A mensagem foi processada pelo n8n workflow.",
+        description: "A mensagem foi processada com sucesso.",
       });
     } catch (error) {
+      console.error('Error sending message:', error);
       toast({
         title: "Aviso",
-        description: "Mensagem enviada, mas não foi possível conectar com o n8n.",
+        description: "Erro ao enviar mensagem.",
         variant: "destructive",
       });
     }
